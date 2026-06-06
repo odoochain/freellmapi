@@ -218,6 +218,158 @@ React + Vite 构建的现代化管理界面，支持：
 
 ---
 
-## 十、总结
+## 十、Claude Code + CCProxy 集成配置
+
+由于 FreeLLMAPI 仅支持 OpenAI 兼容格式，而 Claude Code 使用 Anthropic 格式，需要通过 CCProxy 进行格式转换。
+
+### 10.1 架构说明
+
+```
+Claude Code → CCProxy (:3456) → FreeLLMAPI (:3001) → 各供应商
+```
+
+- **CCProxy**：将 Anthropic 格式转换为 OpenAI 格式的反向代理
+- **FreeLLMAPI**：聚合多个免费 LLM 供应商，统一暴露 OpenAI 格式 API
+
+### 10.2 安装 CCProxy
+
+```bash
+npm install -g ccproxy
+```
+
+### 10.3 配置 CCProxy
+
+初始化配置文件：
+```bash
+ccproxy init --scope user
+```
+
+编辑配置文件 `C:\Users\<用户名>\.ccproxy\settings.json`：
+
+```json
+{
+  "server": {
+    "port": 3456,
+    "host": "127.0.0.1"
+  },
+  "providers": {
+    "openai": {
+      "apiKey": "freellmapi-你的统一密钥",
+      "baseURL": "http://localhost:3001/v1",
+      "responseStyle": "openai"
+    },
+    "anthropic": {
+      "apiKey": "sk-ant-...",
+      "baseURL": "https://api.anthropic.com",
+      "responseStyle": "anthropic"
+    }
+  },
+  "models": {
+    "bigModel": "auto@openai",
+    "smallModel": "auto@openai",
+    "preferredProvider": "openai"
+  },
+  "logging": {
+    "level": "info",
+    "format": "json"
+  },
+  "claude": {
+    "args": ""
+  }
+}
+```
+
+### 10.4 启动服务
+
+```bash
+# 启动 CCProxy
+ccproxy server --debug
+
+# 验证服务
+curl -s http://localhost:3456/v1/messages -X POST \
+  -H "x-api-key: freellmapi-你的统一密钥" \
+  -H "Content-Type: application/json" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{"model":"auto","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+```
+
+### 10.5 配置 Claude Code 使用 FreeLLMAPI
+
+编辑你的 Claude Code 启动脚本（如 `claude483.ps1`）：
+
+```powershell
+#!/usr/bin/env pwsh
+$basedir=Split-Path $MyInvocation.MyCommand.Definition -Parent
+
+$exe=""
+if ($PSVersionTable.PSVersion -lt "6.0" -or $IsWindows) {
+    $exe=".exe"
+}
+
+Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue
+Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue
+Remove-Item Env:ALL_PROXY -ErrorAction SilentlyContinue
+Remove-Item Env:http_proxy -ErrorAction SilentlyContinue
+Remove-Item Env:https_proxy -ErrorAction SilentlyContinue
+Remove-Item Env:all_proxy -ErrorAction SilentlyContinue
+
+# ============================================================
+# CCProxy + FreeLLMAPI Configuration for Claude Code
+# ============================================================
+
+# CCProxy 本地地址 (CCProxy 将请求转发到 FreeLLMAPI)
+$env:ANTHROPIC_BASE_URL = "http://localhost:3456"
+
+# FreeLLMAPI 统一 API Key
+$env:ANTHROPIC_AUTH_TOKEN = "freellmapi-你的统一密钥"
+
+# 使用 auto 让 FreeLLMAPI 路由器自动选择最佳模型
+$env:ANTHROPIC_MODEL = "auto"
+$env:ANTHROPIC_DEFAULT_OPUS_MODEL = "auto"
+$env:ANTHROPIC_DEFAULT_SONNET_MODEL = "auto"
+$env:ANTHROPIC_DEFAULT_HAIKU_MODEL = "auto"
+$env:CLAUDE_CODE_SUBAGENT_MODEL = "auto"
+$env:CLAUDE_CODE_EFFORT_LEVEL = "medium"
+$env:CLAUDE_CODE_USE_POWERSHELL_TOOL = 1
+
+$claudeExePath = "$basedir/node_modules/@anthropic-ai/claude-code/bin/claude$exe"
+
+if (-not (Test-Path $claudeExePath)) {
+    Write-Error "claude executable not found at: $claudeExePath"
+    exit 1
+}
+
+if ($MyInvocation.ExpectingInput) {
+    $input | & $claudeExePath $args
+} else {
+    & $claudeExePath $args
+}
+exit $LASTEXITCODE
+```
+
+### 10.6 使用方法
+
+```powershell
+# 1. 确保 FreeLLMAPI 运行中
+cd d:\dev\lawpaddle\freellmapi
+npm run dev
+
+# 2. 确保 CCProxy 运行中
+ccproxy server --debug
+
+# 3. 运行 Claude Code
+d:\packages\nvm\v24.16.0\claude483.ps1 "你的问题"
+```
+
+### 10.7 注意事项
+
+- 首次运行 Claude Code 会要求确认信任目录，输入 `1` 即可
+- CCProxy 默认端口为 3456，确保端口未被占用
+- 可使用 `netstat -ano | findstr ":3456"` 查看端口占用情况
+- 如需停止 CCProxy：`taskkill /PID <PID> /F`
+
+---
+
+## 十一、总结
 
 FreeLLMAPI 的核心竞争力在于 **"把免费做到极致"**——不仅仅是聚合免费额度，而是通过 Thompson 采样智能路由、多维限流保护、粘性会话、自动故障转移、加密存储等一整套工程最佳实践，将"免费"提升到生产可用的水平。它在技术上不输商业 API 网关，在成本上则是零。
