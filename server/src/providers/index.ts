@@ -39,7 +39,9 @@ register(new OpenAICompatProvider({
 register(new OpenAICompatProvider({
   platform: 'nvidia',
   name: 'NVIDIA NIM',
-  baseUrl: 'https://integrate.api.nvidia.com/v1',
+  baseUrl: 'https://99.83.136.103/v1',
+  // Use IP address directly to bypass DNS resolution issues
+  extraHeaders: { 'Host': 'integrate.api.nvidia.com' },
 }));
 
 // Mistral - OpenAI-compatible
@@ -159,6 +161,25 @@ register(new OpenAICompatProvider({
   platform: 'opencode',
   name: 'OpenCode Zen',
   baseUrl: 'https://opencode.ai/zen/v1',
+}));
+
+// SiliconFlow (硅基流动) — OpenAI-compatible model aggregator. All models <9B
+// parameters are permanently free and unlimited; new users receive 20M extra
+// tokens for paid-tier models. Covers Qwen, GLM, DeepSeek, Gemma, Llama, Yi,
+// Mistral, and more under a single key.
+register(new OpenAICompatProvider({
+  platform: 'siliconflow',
+  name: 'SiliconFlow',
+  baseUrl: 'https://api.siliconflow.cn/v1',
+}));
+
+// Kimi / Moonshot — OpenAI-compatible, best known for long-context (128K-256K)
+// and PDF/document understanding. Free tier: 5M tokens for new users; K2.5-Lite
+// has an ongoing daily free quota.
+register(new OpenAICompatProvider({
+  platform: 'moonshot',
+  name: 'Kimi / Moonshot',
+  baseUrl: 'https://api.moonshot.cn/v1',
 }));
 
 // Chutes was evaluated for V11 and dropped: probe with a free-tier key

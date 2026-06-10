@@ -25,6 +25,11 @@ export type Platform =
   // OpenCode Zen — OpenAI-compatible gateway. Free promotional models require a
   // free (no-card) account key from opencode.ai/auth; see migrateModelsV18.
   | 'opencode'
+  // SiliconFlow (硅基流动) — OpenAI-compatible aggregator. Models <9B are
+  // permanently free & unlimited; new users get 20M extra tokens.
+  | 'siliconflow'
+  // Kimi / Moonshot — OpenAI-compatible, known for long-context (128K-256K).
+  | 'moonshot'
   // User-configured OpenAI-compatible endpoint (llama.cpp, LM Studio, vLLM,
   // Ollama, any base_url). The endpoint URL lives on the api_keys row; see #117.
   | 'custom';

@@ -58,6 +58,7 @@ export function initDb(dbPath?: string): Database.Database {
   migrateModelsV20KiloFree(db);
   migrateModelsV21PruneDead(db);
   migrateModelsV22Tools(db);
+  migrateModelsV23ChineseDomestic(db);
   // After all model migrations: add/refresh paid-equivalent pricing
   // (drives the realistic "Est. savings" analytics stat).
   applyModelPricing(db);
@@ -1721,6 +1722,58 @@ function migrateModelsV22Tools(db: Database.Database) {
         OR LOWER(model_id) LIKE '%nemotron-3-super%' -- benchmarked #8 with real tool calls; nano stays excluded
       )
     `).run();
+  });
+  apply();
+}
+
+// V23 (June 2026): Add SiliconFlow and Kimi / Moonshot domestic Chinese platforms.
+//
+// SiliconFlow (硅基流动) — https://api.siliconflow.cn/v1
+//   All models <9B params are permanently free & unlimited (2026-06). New users
+//   get 20M extra tokens for paid models. Single key accesses dozens of open-source
+//   models (Qwen, GLM, DeepSeek, Gemma, Llama, Yi, Mistral, etc.).
+//
+// Kimi / Moonshot — https://api.moonshot.cn/v1
+//   New users receive 5M free tokens. K2.5-Lite has an ongoing daily free quota.
+//   Best known for long-context (128K–256K) and document understanding.
+//
+// The existing moonshot/kimi-latest and minimax rows seeded by V4 were orphaned
+// (provider never registered); they are kept in place and supplemented here.
+function migrateModelsV23ChineseDomestic(db: Database.Database) {
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO models
+      (platform, model_id, display_name, intelligence_rank, speed_rank, size_label,
+       rpm_limit, rpd_limit, tpm_limit, tpd_limit, monthly_token_budget, context_window)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const siliconflow: Array<[string, string, string, number, number, string, number|null, number|null, number|null, number|null, string, number|null]> = [
+    // Permanently free <9B models — unlimited
+    ['siliconflow', 'Qwen/Qwen2.5-7B-Instruct',           'Qwen2.5-7B (SF)',         10, 3, 'Medium', null, null, null, null, 'free · 9B unlimited',     32768],
+    ['siliconflow', 'THUDM/GLM-4-9B-Chat',                'GLM-4-9B (SF)',            9,  3, 'Medium', null, null, null, null, 'free · 9B unlimited',     32768],
+    ['siliconflow', 'deepseek-ai/DeepSeek-R1-Distill-Llama-8B', 'DeepSeek-R1-Distill-Llama-8B (SF)', 12, 4, 'Medium', null, null, null, null, 'free · 9B unlimited', 32768],
+    ['siliconflow', 'google/gemma-2-9b-it',                'Gemma-2-9B (SF)',          13, 3, 'Medium', null, null, null, null, 'free · 9B unlimited',     32768],
+    ['siliconflow', 'meta-llama/Llama-3.1-8B-Instruct',   'Llama-3.1-8B (SF)',        11, 3, 'Medium', null, null, null, null, 'free · 9B unlimited',     32768],
+    ['siliconflow', '01-ai/Yi-9B-Chat',                   'Yi-9B (SF)',               11, 4, 'Medium', null, null, null, null, 'free · 9B unlimited',     4096],
+    ['siliconflow', 'mistralai/Mistral-7B-Instruct-v0.3', 'Mistral-7B (SF)',          12, 3, 'Medium', null, null, null, null, 'free · 9B unlimited',     32768],
+    // New-user 20M token bonus applies to paid models — seed a representative few
+    ['siliconflow', 'Qwen/Qwen2.5-72B-Instruct',           'Qwen2.5-72B (SF)',          6, 5, 'Large',  null, null, null, null, '20M tokens (new user)', 32768],
+    ['siliconflow', 'deepseek-ai/DeepSeek-V3',            'DeepSeek-V3 (SF)',           4, 5, 'Large',  null, null, null, null, '20M tokens (new user)', 64000],
+  ];
+
+  const moonshot: Array<[string, string, string, number, number, string, number|null, number|null, number|null, number|null, string, number|null]> = [
+    // Replace the orphaned V4 entry with fresh data matching current catalog
+    ['moonshot', 'moonshot-v1-8k',     'Kimi 8K',      9, 3, 'Large', null, null, null, null, '5M tokens (new user)',  8192],
+    ['moonshot', 'moonshot-v1-32k',    'Kimi 32K',     8, 3, 'Large', null, null, null, null, '5M tokens (new user)',  32768],
+    ['moonshot', 'moonshot-v1-128k',   'Kimi 128K',    8, 4, 'Large', null, null, null, null, '5M tokens (new user)',  131072],
+    // K2.5 family — best for long-context / document work
+    ['moonshot', 'moonshot-v1-auto',   'Kimi Auto',    7, 4, 'Large', null, null, null, null, '5M tokens (new user)',  131072],
+  ];
+
+  const apply = db.transaction(() => {
+    for (const m of siliconflow) insert.run(...m);
+    for (const m of moonshot)    insert.run(...m);
+    backfillFallback(db);
   });
   apply();
 }

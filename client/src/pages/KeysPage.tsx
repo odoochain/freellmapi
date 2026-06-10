@@ -51,6 +51,8 @@ const PLATFORMS: { value: Platform; label: string; url: string; keyless?: boolea
   { value: 'llm7', label: 'LLM7 (anon ok)', url: 'https://llm7.io' },
   { value: 'huggingface', label: 'HuggingFace Router', url: 'https://huggingface.co/settings/tokens' },
   { value: 'opencode', label: 'OpenCode Zen (free key)', url: 'https://opencode.ai/auth' },
+  { value: 'siliconflow', label: 'SiliconFlow (硅基流动)', url: 'https://cloud.siliconflow.cn/user/api-key' },
+  { value: 'moonshot', label: 'Moonshot AI (Kimi)', url: 'https://platform.moonshot.cn/console/api-keys' },
 ]
 
 // 'custom' is configured through its own form (base URL + model), not the
