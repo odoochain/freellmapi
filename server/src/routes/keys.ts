@@ -8,13 +8,13 @@ import { encrypt, decrypt, maskKey } from '../lib/crypto.js';
 export const keysRouter = Router();
 
 // Active providers — must match providers/index.ts registrations + shared/types.ts Platform.
-// MiniMax direct integration was dropped in V4. HuggingFace was dropped in V4 and
-// re-added in V13 via the router.huggingface.co route.
+// Moonshot and MiniMax direct integrations were dropped in V4. HuggingFace
+// was dropped in V4 and re-added in V13 via the router.huggingface.co route.
+// SambaNova was dropped in V23 (free tier permanently retired).
 const PLATFORMS = [
-  'google', 'groq', 'cerebras', 'sambanova', 'nvidia', 'mistral',
+  'google', 'groq', 'cerebras', 'nvidia', 'mistral',
   'openrouter', 'github', 'cohere', 'cloudflare', 'zhipu', 'ollama',
-  'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'siliconflow',
-  'moonshot', 'custom',
+  'kilo', 'pollinations', 'llm7', 'huggingface', 'opencode', 'custom',
 ] as const;
 
 // `key` is optional so keyless providers (Kilo's anonymous gateway) can be added

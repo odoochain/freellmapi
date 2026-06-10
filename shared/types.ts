@@ -5,11 +5,12 @@
 // Moonshot and MiniMax direct integrations were dropped in migrateModelsV4
 // (see server/src/db/index.ts). HuggingFace was dropped in V4 and re-added
 // in V13 via the router.huggingface.co Inference Providers meta-router.
+// SambaNova was dropped in V23 (free tier permanently retired — 402
+// "payment method required" once the one-time $5 trial credit lapses).
 export type Platform =
   | 'google'
   | 'groq'
   | 'cerebras'
-  | 'sambanova'
   | 'nvidia'
   | 'mistral'
   | 'openrouter'
@@ -143,6 +144,10 @@ export interface ChatMessage {
   name?: string;
   tool_call_id?: string;
   tool_calls?: ChatToolCall[];
+  // The model's thinking trace on an assistant turn. Some thinking models
+  // (DeepSeek on OpenCode Zen) require it to be replayed verbatim on the next
+  // turn or they 400; the proxy preserves and forwards it. See issue #255.
+  reasoning_content?: string;
 }
 
 export interface ChatCompletionRequest {

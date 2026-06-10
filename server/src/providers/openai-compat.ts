@@ -4,11 +4,11 @@ import type {
   ChatCompletionChunk,
   Platform,
 } from '@freellmapi/shared/types.js';
-import { BaseProvider, type CompletionOptions } from './base.js';
+import { BaseProvider, providerHttpError, type CompletionOptions } from './base.js';
 
 /**
  * Generic provider for platforms that use an OpenAI-compatible API.
- * Covers: Groq, Cerebras, SambaNova, NVIDIA NIM, Mistral, OpenRouter,
+ * Covers: Groq, Cerebras, NVIDIA NIM, Mistral, OpenRouter,
  * GitHub Models, Fireworks AI.
  */
 export class OpenAICompatProvider extends BaseProvider {
@@ -20,8 +20,10 @@ export class OpenAICompatProvider extends BaseProvider {
   /** Per-provider HTTP timeout override. Cloud APIs finish in ~15s; locally-hosted
    * inference (llama.cpp / vLLM on CPU) can take 30-120s for long prompts. Default 15000. */
   private readonly timeoutMs: number;
-  /** Custom DNS servers for this provider (fallback when system DNS fails) */
-  private readonly dnsServers?: string[];
+  /** NVIDIA NIM models reject any request that permits parallel tool calls with
+   * `400 This model only supports single tool-calls at once!`. When set, pin
+   * parallel_tool_calls to false whenever tools are in play. See issue #255. */
+  private readonly forceSingleToolCall: boolean;
 
   constructor(opts: {
     platform: Platform;
@@ -31,7 +33,7 @@ export class OpenAICompatProvider extends BaseProvider {
     validateUrl?: string;
     timeoutMs?: number;
     keyless?: boolean;
-    dnsServers?: string[];
+    forceSingleToolCall?: boolean;
   }) {
     super();
     this.platform = opts.platform;
@@ -41,7 +43,16 @@ export class OpenAICompatProvider extends BaseProvider {
     this.validateUrl = opts.validateUrl;
     this.timeoutMs = opts.timeoutMs ?? 15000;
     this.keyless = opts.keyless ?? false;
-    this.dnsServers = opts.dnsServers;
+    this.forceSingleToolCall = opts.forceSingleToolCall ?? false;
+  }
+
+  /** Resolve the parallel_tool_calls flag to send upstream. For providers that
+   * only accept single tool calls (NVIDIA NIM), force `false` whenever tools are
+   * present so the model never tries to emit two at once and 400s; otherwise pass
+   * the caller's value through unchanged. See issue #255. */
+  private resolveParallelToolCalls(options?: CompletionOptions): boolean | undefined {
+    if (this.forceSingleToolCall && options?.tools && options.tools.length > 0) return false;
+    return options?.parallel_tool_calls;
   }
 
   /** Keyless providers (Kilo's anonymous free tier) must send NO Authorization
@@ -57,7 +68,7 @@ export class OpenAICompatProvider extends BaseProvider {
     modelId: string,
     options?: CompletionOptions,
   ): Promise<ChatCompletionResponse> {
-    const res = await this.customFetch(`${this.baseUrl}/chat/completions`, {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         ...this.authHeader(apiKey),
@@ -72,13 +83,13 @@ export class OpenAICompatProvider extends BaseProvider {
         top_p: options?.top_p,
         tools: options?.tools,
         tool_choice: options?.tool_choice,
-        parallel_tool_calls: options?.parallel_tool_calls,
+        parallel_tool_calls: this.resolveParallelToolCalls(options),
       }),
-    }, this.timeoutMs);
+    }, options?.timeoutMs ?? this.timeoutMs);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(`${this.name} API error ${res.status}: ${(err as any).error?.message ?? res.statusText}`);
+      throw providerHttpError(res, `${this.name} API error ${res.status}: ${(err as any).error?.message ?? res.statusText}`);
     }
 
     let data: ChatCompletionResponse;
@@ -105,7 +116,7 @@ export class OpenAICompatProvider extends BaseProvider {
     modelId: string,
     options?: CompletionOptions,
   ): AsyncGenerator<ChatCompletionChunk> {
-    const res = await this.customFetch(`${this.baseUrl}/chat/completions`, {
+    const res = await this.fetchWithTimeout(`${this.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         ...this.authHeader(apiKey),
@@ -120,14 +131,14 @@ export class OpenAICompatProvider extends BaseProvider {
         top_p: options?.top_p,
         tools: options?.tools,
         tool_choice: options?.tool_choice,
-        parallel_tool_calls: options?.parallel_tool_calls,
+        parallel_tool_calls: this.resolveParallelToolCalls(options),
         stream: true,
       }),
     }, this.timeoutMs);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(`${this.name} API error ${res.status}: ${(err as any).error?.message ?? res.statusText}`);
+      throw providerHttpError(res, `${this.name} API error ${res.status}: ${(err as any).error?.message ?? res.statusText}`);
     }
 
     yield* this.readSseStream(res);
@@ -143,7 +154,7 @@ export class OpenAICompatProvider extends BaseProvider {
     // from India). A 10s cap aborted those calls and health.ts marked a
     // perfectly good key status='error'. 30s aligns with chatCompletion's
     // own slow-upstream allowance and costs nothing for fast providers.
-    const res = await this.customFetch(url, {
+    const res = await this.fetchWithTimeout(url, {
       method: 'GET',
       headers: {
         ...this.authHeader(apiKey),
@@ -151,169 +162,6 @@ export class OpenAICompatProvider extends BaseProvider {
       },
     }, 30000);
     return res.status !== 401 && res.status !== 403;
-  }
-
-  /**
-   * Resolve hostname using custom DNS servers if configured and system DNS fails.
-   * @param hostname The hostname to resolve
-   * @returns The resolved IP address, or null if resolution fails
-   */
-  private async resolveHostname(hostname: string): Promise<string | null> {
-    const dns = await import('dns');
-    
-    // First try system DNS
-    try {
-      const addresses = await new Promise<string[]>((resolve, reject) => {
-        dns.resolve4(hostname, (err, addresses) => {
-          if (err) reject(err);
-          else resolve(addresses);
-        });
-      });
-      return addresses[0] || null;
-    } catch {
-      // System DNS failed, try custom DNS servers if configured
-      if (!this.dnsServers || this.dnsServers.length === 0) {
-        return null;
-      }
-      
-      for (const server of this.dnsServers) {
-        try {
-          const resolver = new dns.Resolver();
-          resolver.setServers([server]);
-          const addresses = await new Promise<string[]>((resolve, reject) => {
-            resolver.resolve4(hostname, (err, addresses) => {
-              if (err) reject(err);
-              else resolve(addresses);
-            });
-          });
-          return addresses[0] || null;
-        } catch {
-          // Try next DNS server
-          continue;
-        }
-      }
-      return null;
-    }
-  }
-
-  /**
-   * Custom fetch implementation that handles IP-based connections with proper
-   * TLS SNI (Server Name Indication) for providers with DNS resolution issues.
-   */
-  private async customFetch(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
-    const urlObj = new URL(url);
-    const hostname = urlObj.hostname;
-    
-    // Check if hostname is already an IP address
-    const isIpAddress = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname);
-    
-    if (isIpAddress) {
-      // Extract the real hostname from Host header or extraHeaders
-      const headers = new Headers(init.headers);
-      const hostHeader = headers.get('Host') || this.extraHeaders['Host'];
-      
-      if (hostHeader) {
-        // Use Node.js https module with proper SNI
-        const https = await import('https');
-        
-        return new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Request timeout'));
-          }, timeoutMs);
-          
-          const options: import('https').RequestOptions = {
-            hostname: hostname,
-            port: urlObj.port || 443,
-            path: urlObj.pathname + urlObj.search,
-            method: init.method || 'GET',
-            headers: Object.fromEntries(headers),
-            // Set servername for SNI - this is the key for TLS certificate validation
-            servername: hostHeader,
-          };
-          
-          const req = https.request(options, (res) => {
-            clearTimeout(timeout);
-            const body: Buffer[] = [];
-            res.on('data', (chunk: Buffer) => body.push(chunk));
-            res.on('end', () => {
-              const responseBody = Buffer.concat(body);
-              const response = new Response(responseBody, {
-                status: res.statusCode || 500,
-                statusText: res.statusMessage || '',
-                headers: new Headers(res.headers as any),
-              });
-              resolve(response);
-            });
-          });
-          
-          req.on('error', (err: Error) => {
-            clearTimeout(timeout);
-            reject(err);
-          });
-          
-          if (init.body) {
-            req.write(init.body);
-          }
-          req.end();
-        });
-      }
-    }
-    
-    // Try custom DNS resolution if configured
-    if (this.dnsServers && this.dnsServers.length > 0) {
-      const resolvedIp = await this.resolveHostname(hostname);
-      if (resolvedIp) {
-        const headers = new Headers(init.headers);
-        headers.set('Host', hostname);
-        
-        const https = await import('https');
-        
-        return new Promise<Response>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Request timeout'));
-          }, timeoutMs);
-          
-          const options: import('https').RequestOptions = {
-            hostname: resolvedIp,
-            port: urlObj.port || 443,
-            path: urlObj.pathname + urlObj.search,
-            method: init.method || 'GET',
-            headers: Object.fromEntries(headers),
-            servername: hostname,
-          };
-          
-          const req = https.request(options, (res) => {
-            clearTimeout(timeout);
-            const body: Buffer[] = [];
-            res.on('data', (chunk: Buffer) => body.push(chunk));
-            res.on('end', () => {
-              const responseBody = Buffer.concat(body);
-              const response = new Response(responseBody, {
-                status: res.statusCode || 500,
-                statusText: res.statusMessage || '',
-                headers: new Headers(res.headers as any),
-              });
-              resolve(response);
-            });
-          });
-          
-          req.on('error', (err: Error) => {
-            clearTimeout(timeout);
-            reject(err);
-          });
-          
-          if (init.body) {
-            req.write(init.body);
-          }
-          req.end();
-        }).catch(() => {
-          return super.fetchWithTimeout(url, init, timeoutMs);
-        });
-      }
-    }
-    
-    // Use standard fetch
-    return super.fetchWithTimeout(url, init, timeoutMs);
   }
 }
 

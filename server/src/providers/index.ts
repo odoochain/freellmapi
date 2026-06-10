@@ -28,20 +28,19 @@ register(new OpenAICompatProvider({
   baseUrl: 'https://api.cerebras.ai/v1',
 }));
 
-// SambaNova - OpenAI-compatible
-register(new OpenAICompatProvider({
-  platform: 'sambanova',
-  name: 'SambaNova',
-  baseUrl: 'https://api.sambanova.ai/v1',
-}));
+// SambaNova was dropped in V23 (June 2026): the free tier is permanently gone.
+// The always-free tier was retired in early 2025 for a one-time $5 trial
+// credit (expires in 3 months); once it lapses, every chat call 402s
+// "payment method required" with no recurring no-card path back.
 
-// NVIDIA NIM - OpenAI-compatible
+// NVIDIA NIM - OpenAI-compatible. Several NIM models reject parallel tool calls
+// ("This model only supports single tool-calls at once!"), so pin
+// parallel_tool_calls to false when tools are present. See issue #255.
 register(new OpenAICompatProvider({
   platform: 'nvidia',
   name: 'NVIDIA NIM',
-  baseUrl: 'https://99.83.136.103/v1',
-  // Use IP address directly to bypass DNS resolution issues
-  extraHeaders: { 'Host': 'integrate.api.nvidia.com' },
+  baseUrl: 'https://integrate.api.nvidia.com/v1',
+  forceSingleToolCall: true,
 }));
 
 // Mistral - OpenAI-compatible
@@ -161,25 +160,6 @@ register(new OpenAICompatProvider({
   platform: 'opencode',
   name: 'OpenCode Zen',
   baseUrl: 'https://opencode.ai/zen/v1',
-}));
-
-// SiliconFlow (硅基流动) — OpenAI-compatible model aggregator. All models <9B
-// parameters are permanently free and unlimited; new users receive 20M extra
-// tokens for paid-tier models. Covers Qwen, GLM, DeepSeek, Gemma, Llama, Yi,
-// Mistral, and more under a single key.
-register(new OpenAICompatProvider({
-  platform: 'siliconflow',
-  name: 'SiliconFlow',
-  baseUrl: 'https://api.siliconflow.cn/v1',
-}));
-
-// Kimi / Moonshot — OpenAI-compatible, best known for long-context (128K-256K)
-// and PDF/document understanding. Free tier: 5M tokens for new users; K2.5-Lite
-// has an ongoing daily free quota.
-register(new OpenAICompatProvider({
-  platform: 'moonshot',
-  name: 'Kimi / Moonshot',
-  baseUrl: 'https://api.moonshot.cn/v1',
 }));
 
 // Chutes was evaluated for V11 and dropped: probe with a free-tier key
