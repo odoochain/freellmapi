@@ -24,6 +24,11 @@ export class OpenAICompatProvider extends BaseProvider {
    * `400 This model only supports single tool-calls at once!`. When set, pin
    * parallel_tool_calls to false whenever tools are in play. See issue #255. */
   private readonly forceSingleToolCall: boolean;
+  /** Hostname → IP mapping for providers whose DNS is unreachable from Node.js
+   * (e.g. behind firewalls that block Node.js DNS but allow curl).
+   * Requests to mapped hostnames go directly to the IP with the original
+   * hostname set as TLS SNI servername for proper certificate validation. */
+  private readonly resolveIp?: Record<string, string>;
 
   constructor(opts: {
     platform: Platform;
@@ -34,6 +39,7 @@ export class OpenAICompatProvider extends BaseProvider {
     timeoutMs?: number;
     keyless?: boolean;
     forceSingleToolCall?: boolean;
+    resolveIp?: Record<string, string>;
   }) {
     super();
     this.platform = opts.platform;
@@ -44,6 +50,62 @@ export class OpenAICompatProvider extends BaseProvider {
     this.timeoutMs = opts.timeoutMs ?? 15000;
     this.keyless = opts.keyless ?? false;
     this.forceSingleToolCall = opts.forceSingleToolCall ?? false;
+    this.resolveIp = opts.resolveIp;
+  }
+
+  /** Override BaseProvider.fetchWithTimeout to support IP-direct connections.
+   * When the URL's hostname has a resolveIp mapping, bypass Node.js DNS lookup
+   * by connecting directly to the IP with the original hostname as TLS SNI
+   * servername — essential for providers blocked by firewall DNS policies. */
+  protected async fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    timeoutMs = 15000,
+  ): Promise<Response> {
+    const urlObj = new URL(url);
+    const hostname = urlObj.hostname;
+    const resolved = this.resolveIp?.[hostname];
+
+    // No mapping → standard fetch
+    if (!resolved) return super.fetchWithTimeout(url, init, timeoutMs);
+
+    // IP-direct request using https module with SNI for TLS cert validation
+    const https = await import('https');
+    const headers = new Headers(init.headers);
+    headers.set('Host', hostname);
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Request timeout')), timeoutMs);
+
+      const req = https.request({
+        hostname: resolved,
+        port: urlObj.port || 443,
+        path: urlObj.pathname + urlObj.search,
+        method: init.method || 'GET',
+        headers: Object.fromEntries(headers),
+        servername: hostname, // TLS SNI — cert validated against real hostname
+      }, (res) => {
+        clearTimeout(timeout);
+        const body: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => body.push(chunk));
+        res.on('end', () => {
+          const response = new Response(Buffer.concat(body), {
+            status: res.statusCode || 500,
+            statusText: res.statusMessage || '',
+            headers: new Headers(res.headers as Record<string, string>),
+          });
+          resolve(response);
+        });
+      });
+
+      req.on('error', (err: Error) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+
+      if (init.body) req.write(init.body as string);
+      req.end();
+    });
   }
 
   /** Resolve the parallel_tool_calls flag to send upstream. For providers that

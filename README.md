@@ -30,6 +30,7 @@ Aggregate the free tiers from Google, Groq, Cerebras, NVIDIA, Mistral, OpenRoute
 - [Screenshots](#screenshots)
 - [How it works](#how-it-works)
 - [Limitations](#limitations)
+- [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
 - [Terms of Service review](#terms-of-service-review)
 - [Disclaimer](#disclaimer)
@@ -421,6 +422,35 @@ Stacking free tiers has real trade-offs. Be honest with yourself about them:
 - **Free tiers can change without notice.** Providers regularly tighten, loosen, or remove free tiers. When that happens you'll see 429s or auth errors until you update the catalog. Re-seed scripts live in `server/src/scripts/`.
 - **No SLA, by definition.** If you need reliability, use a paid provider with a contract.
 - **Local-first.** There's no multi-tenant auth. Run this for yourself; don't expose it to the internet.
+
+## Troubleshooting
+
+<details>
+<summary><strong>ENOENT: no such file or directory — <code>client/dist/index.html</code></strong></summary>
+
+The server serves the dashboard from `client/dist/`, which is gitignored. After any `git merge`, `git pull`, branch switch, or fresh clone you must rebuild:
+
+```bash
+cd client && npm run build
+```
+
+</details>
+
+<details>
+<summary><strong>Provider shows "error" status in the dashboard but the key is valid</strong></summary>
+
+The health checker pings each provider's `/v1/models` endpoint every 5 minutes. If your network can't reach the provider's domain (DNS blocked, no proxy), the key gets marked `status='error'` — but it stays **enabled** and the router will still try it for real requests.
+
+Fix: ensure the domain is reachable (e.g. add a hosts entry, configure a system proxy, or use `proxychains` for the server process).
+
+</details>
+
+<details>
+<summary><strong>NVIDIA NIM returns 400 "only supports single tool-calls at once"</strong></summary>
+
+Fixed in `#255`. If you're on an older version, update. The NVIDIA provider now forces `parallel_tool_calls: false` whenever tools are present.
+
+</details>
 
 ## Contributing
 

@@ -36,11 +36,17 @@ register(new OpenAICompatProvider({
 // NVIDIA NIM - OpenAI-compatible. Several NIM models reject parallel tool calls
 // ("This model only supports single tool-calls at once!"), so pin
 // parallel_tool_calls to false when tools are present. See issue #255.
+//
+// Reason for resolveIp: the Windows firewall (Portmaster) blocks Node.js DNS
+// for integrate.api.nvidia.com while curl works fine. resolveIp bypasses
+// Node.js DNS by connecting directly to the IP with the real hostname set
+// as TLS SNI, so certificate validation still works correctly.
 register(new OpenAICompatProvider({
   platform: 'nvidia',
   name: 'NVIDIA NIM',
   baseUrl: 'https://integrate.api.nvidia.com/v1',
   forceSingleToolCall: true,
+  resolveIp: { 'integrate.api.nvidia.com': '99.83.136.103' },
 }));
 
 // Mistral - OpenAI-compatible
