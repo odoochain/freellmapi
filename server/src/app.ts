@@ -44,7 +44,7 @@ export function createApp() {
   // a single-user local proxy, served over HTTP on localhost. Both should
   // stay disabled unless someone serves the proxy over HTTPS publicly
   // (which is also not a supported deployment — see README).
-  app.use(helmet({ contentSecurityPolicy: false, hsts: false }));
+  app.use(helmet({ contentSecurityPolicy: false, hsts: false, frameguard: false }));
   app.use(cors({
     origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
       callback(null, !origin || allowedCorsOrigins.has(origin));
