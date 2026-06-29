@@ -352,7 +352,11 @@ export function isRetryableError(err: any): boolean {
     || msg.includes('in-band provider error')
     || msg.includes('stream ended unexpectedly')
     || msg.includes('stream stalled')
-    || msg.includes('unparseable inline tool-call dialect');
+    || msg.includes('unparseable inline tool-call dialect')
+    // Custom provider returning non-JSON (HTML error page, wrong base URL, etc.)
+    // — fail over to the next model instead of immediately 502-ing. If this is
+    // the only model in the chain it will still surface the diagnostic message.
+    || msg.includes('non-json');
 }
 
 // A 402 Payment Required / out-of-credits error. Distinct from a transient 429:

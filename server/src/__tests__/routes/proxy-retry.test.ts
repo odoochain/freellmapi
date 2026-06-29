@@ -120,6 +120,15 @@ describe('isRetryableError', () => {
     });
   });
 
+  describe('custom provider non-JSON response (wrong base URL / HTML error page)', () => {
+    it('treats non-JSON body errors as retryable to fail over to next model', () => {
+      // Custom provider pointing to Anthropic native API (not OpenAI-compatible)
+      expect(isRetryableError(new Error('Custom (OpenAI-compatible) returned 200 with a non-JSON body — the endpoint is not OpenAI-compatible. Check the base URL (for Ollama use http://host:11434/v1, for llama.cpp/vLLM/LM Studio the /v1 path).'))).toBe(true);
+      // Generic non-JSON response (e.g., HTML error page)
+      expect(isRetryableError(new Error('Provider returned non-JSON response'))).toBe(true);
+    });
+  });
+
   describe('existing categories still classify correctly', () => {
     it('429 / rate limits are retryable', () => {
       expect(isRetryableError(new Error('429 Too Many Requests'))).toBe(true);
